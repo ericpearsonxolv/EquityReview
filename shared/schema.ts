@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { pgTable, text, integer, timestamp, json } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
 
 export const ValuesAlignmentEnum = z.enum(["Aligned", "Partially aligned", "Misaligned"]);
 export const RatingConsistencyEnum = z.enum(["Consistent", "Inconsistent"]);
@@ -16,6 +18,23 @@ export const analysisResultSchema = z.object({
 });
 
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
+
+export const jobs = pgTable("jobs", {
+  id: text("id").primaryKey(),
+  reviewBatch: text("review_batch").notNull(),
+  status: text("status").notNull().default("queued"),
+  progress: integer("progress").notNull().default(0),
+  message: text("message"),
+  resultFileName: text("result_file_name"),
+  totalEmployees: integer("total_employees"),
+  processedEmployees: integer("processed_employees"),
+  results: json("results"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertJobDbSchema = createInsertSchema(jobs).omit({ id: true, createdAt: true });
+export type InsertJobDb = z.infer<typeof insertJobDbSchema>;
+export type JobDb = typeof jobs.$inferSelect;
 
 export const jobSchema = z.object({
   id: z.string(),

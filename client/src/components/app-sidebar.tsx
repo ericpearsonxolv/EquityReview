@@ -1,4 +1,6 @@
 import { BarChart3, FileSpreadsheet, Shield } from "lucide-react";
+import { useLocation, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -15,30 +17,39 @@ import {
 import { Separator } from "@/components/ui/separator";
 import catalightLogo from "@assets/image_1768679443516.png";
 
+interface Stats {
+  totalAnalyzed: number;
+  totalRedFlags: number;
+  completedJobs: number;
+}
+
 const navigationItems = [
   {
     title: "Analysis",
     url: "/",
     icon: BarChart3,
-    isActive: true,
   },
   {
     title: "Reports",
-    url: "#",
+    url: "/reports",
     icon: FileSpreadsheet,
-    isActive: false,
   },
   {
     title: "Compliance",
-    url: "#",
+    url: "/compliance",
     icon: Shield,
-    isActive: false,
   },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const [location] = useLocation();
   const isCollapsed = state === "collapsed";
+
+  const { data: stats } = useQuery<Stats>({
+    queryKey: ["/api/stats"],
+    refetchInterval: 5000,
+  });
 
   return (
     <Sidebar collapsible="icon">
@@ -61,14 +72,14 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
-                    isActive={item.isActive}
+                    isActive={location === item.url}
                     tooltip={item.title}
                     data-testid={`nav-${item.title.toLowerCase()}`}
                   >
-                    <a href={item.url}>
+                    <Link href={item.url}>
                       <item.icon className="h-4 w-4 shrink-0" />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -82,13 +93,17 @@ export function AppSidebar() {
           <SidebarGroupLabel>Quick Stats</SidebarGroupLabel>
           <SidebarGroupContent className="px-2">
             <div className="space-y-2">
-              <div className="px-3 py-2 rounded-md bg-sidebar-accent">
+              <div className="px-3 py-2 rounded-md bg-sidebar-accent" data-testid="stat-reviews-analyzed">
                 <div className="text-xs text-muted-foreground">Reviews Analyzed</div>
-                <div className="text-lg font-semibold text-sidebar-foreground">--</div>
+                <div className="text-lg font-semibold text-sidebar-foreground">
+                  {stats?.totalAnalyzed ?? 0}
+                </div>
               </div>
-              <div className="px-3 py-2 rounded-md bg-sidebar-accent">
+              <div className="px-3 py-2 rounded-md bg-sidebar-accent" data-testid="stat-red-flags">
                 <div className="text-xs text-muted-foreground">RED Flags</div>
-                <div className="text-lg font-semibold text-sidebar-foreground">--</div>
+                <div className="text-lg font-semibold text-sidebar-foreground">
+                  {stats?.totalRedFlags ?? 0}
+                </div>
               </div>
             </div>
           </SidebarGroupContent>

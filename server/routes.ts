@@ -94,6 +94,8 @@ async function processJob(jobId: string, buffer: Buffer, reviewBatch: string) {
       return;
     }
 
+    await storage.storeJobResults(jobId, results);
+
     await storage.updateJob(jobId, { 
       status: "done", 
       progress: 100, 
@@ -162,6 +164,64 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error("Error in /api/jobs/:jobId:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/jobs", async (req: Request, res: Response) => {
+    try {
+      const jobs = await storage.getAllJobs();
+      return res.json(jobs.map(job => ({
+        id: job.id,
+        reviewBatch: job.reviewBatch,
+        status: job.status,
+        progress: job.progress,
+        message: job.message,
+        createdAt: job.createdAt,
+        totalEmployees: job.totalEmployees,
+        resultFileName: job.resultFileName,
+      })));
+    } catch (error) {
+      console.error("Error in /api/jobs:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/stats", async (req: Request, res: Response) => {
+    try {
+      const stats = await storage.getStats();
+      return res.json(stats);
+    } catch (error) {
+      console.error("Error in /api/stats:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/jobs/:jobId/results", async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.jobId as string;
+      const job = await storage.getJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      const results = storage.getJobResults(jobId);
+      if (!results) {
+        return res.status(404).json({ message: "Results not found" });
+      }
+
+      return res.json({
+        job: {
+          id: job.id,
+          reviewBatch: job.reviewBatch,
+          createdAt: job.createdAt,
+          totalEmployees: job.totalEmployees,
+        },
+        results,
+      });
+    } catch (error) {
+      console.error("Error in /api/jobs/:jobId/results:", error);
       return res.status(500).json({ message: "Internal server error" });
     }
   });
