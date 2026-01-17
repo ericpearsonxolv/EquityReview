@@ -1,7 +1,7 @@
-# EquityReview Prototype
+# EquityReview Prototype (Catalight)
 
 ## Overview
-A web application for HR teams to analyze performance review data using AI-powered bias detection, values alignment assessment, and rating consistency analysis.
+A web application for Catalight HR teams to analyze performance review data using AI-powered bias detection, values alignment assessment, and rating consistency analysis.
 
 ## Current State
 - MVP implementation complete with full upload-analyze-download workflow

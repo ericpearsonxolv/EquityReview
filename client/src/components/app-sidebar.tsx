@@ -1,4 +1,4 @@
-import { BarChart3, FileSpreadsheet, Shield, Building2 } from "lucide-react";
+import { BarChart3, FileSpreadsheet, Shield } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -10,8 +10,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import catalightLogo from "@assets/image_1768679443516.png";
 
 const navigationItems = [
   {
@@ -35,17 +37,18 @@ const navigationItems = [
 ];
 
 export function AppSidebar() {
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="px-4 py-4">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
-            <Building2 className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <div>
-            <span className="text-sm font-semibold text-sidebar-foreground">EquityReview</span>
-            <p className="text-xs text-muted-foreground">Enterprise Edition</p>
-          </div>
+      <SidebarHeader className="p-3">
+        <div className="flex items-center gap-3 overflow-hidden">
+          <img 
+            src={catalightLogo} 
+            alt="Catalight" 
+            className={`h-8 object-contain transition-all duration-200 ${isCollapsed ? 'w-8' : 'w-auto max-w-[140px]'}`}
+          />
         </div>
       </SidebarHeader>
       
@@ -59,10 +62,11 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={item.isActive}
+                    tooltip={item.title}
                     data-testid={`nav-${item.title.toLowerCase()}`}
                   >
                     <a href={item.url}>
-                      <item.icon className="h-4 w-4" />
+                      <item.icon className="h-4 w-4 shrink-0" />
                       <span>{item.title}</span>
                     </a>
                   </SidebarMenuButton>
@@ -72,9 +76,9 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
         
-        <Separator className="mx-4" />
+        <Separator className="mx-4 group-data-[collapsible=icon]:hidden" />
         
-        <SidebarGroup>
+        <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel>Quick Stats</SidebarGroupLabel>
           <SidebarGroupContent className="px-2">
             <div className="space-y-2">
@@ -91,7 +95,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       
-      <SidebarFooter className="px-4 py-3">
+      <SidebarFooter className="px-4 py-3 group-data-[collapsible=icon]:hidden">
         <div className="text-xs text-muted-foreground">
           v1.0.0 - Mock LLM Mode
         </div>
