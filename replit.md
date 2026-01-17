@@ -4,9 +4,10 @@
 A web application for Catalight HR teams to analyze performance review data using AI-powered bias detection, values alignment assessment, and rating consistency analysis.
 
 ## Current State
-- MVP implementation complete with full upload-analyze-download workflow
-- Uses mock LLM provider (no external API keys required)
-- In-memory job storage with local filesystem for results
+- Production-ready implementation with full upload-analyze-download workflow
+- Uses mock LLM provider (no external API keys required, easily swappable for Azure OpenAI)
+- PostgreSQL database storage for persistent job history
+- All navigation sections fully functional
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Vite + TailwindCSS + shadcn/ui
@@ -39,8 +40,11 @@ A web application for Catalight HR teams to analyze performance review data usin
 
 ## API Endpoints
 - `POST /api/analyze` - Upload Excel file with reviewBatch name, returns jobId
+- `GET /api/jobs` - List all jobs with status and metadata
 - `GET /api/jobs/:jobId` - Get job status, progress, and result info
+- `GET /api/jobs/:jobId/results` - Get job analysis results data
 - `GET /api/jobs/:jobId/download` - Download results Excel file
+- `GET /api/stats` - Get aggregate stats (totalAnalyzed, totalRedFlags, completedJobs)
 
 ## Key Features
 1. **Excel Upload**: Upload .xlsx performance review data
@@ -54,6 +58,9 @@ A web application for Catalight HR teams to analyze performance review data usin
    - Loaded language without evidence
    - Policy-sensitive content (medical, discrimination, etc.)
 4. **Results Download**: Generated Excel with AI recommendations
+5. **Reports Page**: View all completed analyses with download history
+6. **Compliance Page**: Review escalation flags, audit policies, and compliance checklist
+7. **Real-time Stats**: Sidebar shows live counts of reviews analyzed and RED flags
 
 ## Running the App
 ```bash
