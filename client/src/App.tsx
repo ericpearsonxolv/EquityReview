@@ -10,6 +10,12 @@ import { Users } from "lucide-react";
 import AnalysisPortal from "@/pages/analysis-portal";
 import Reports from "@/pages/reports";
 import Compliance from "@/pages/compliance";
+import AdminGeneral from "@/pages/admin/general";
+import AdminSecurity from "@/pages/admin/security";
+import AdminDirectory from "@/pages/admin/directory";
+import AdminWorkday from "@/pages/admin/workday";
+import AdminSharePoint from "@/pages/admin/sharepoint";
+import AdminAudit from "@/pages/admin/audit";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -18,6 +24,13 @@ function Router() {
       <Route path="/" component={AnalysisPortal} />
       <Route path="/reports" component={Reports} />
       <Route path="/compliance" component={Compliance} />
+      <Route path="/admin" component={AdminGeneral} />
+      <Route path="/admin/general" component={AdminGeneral} />
+      <Route path="/admin/security" component={AdminSecurity} />
+      <Route path="/admin/directory" component={AdminDirectory} />
+      <Route path="/admin/integrations/workday" component={AdminWorkday} />
+      <Route path="/admin/integrations/sharepoint" component={AdminSharePoint} />
+      <Route path="/admin/audit" component={AdminAudit} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
 import { 
   Upload, 
   Download, 
@@ -17,8 +20,20 @@ import {
   Info,
   BarChart3,
   Clock,
-  ChevronRight
+  ChevronRight,
+  ArrowRight
 } from "lucide-react";
+
+interface HistoryItem {
+  id: string;
+  reviewBatch: string;
+  runId: string;
+  submittedAt: string;
+  totalEmployees: number;
+  redCount: number;
+  greenCount: number;
+  status: "Pending" | "Completed" | "Failed";
+}
 
 type JobStatus = "queued" | "running" | "done" | "error";
 
@@ -227,6 +242,11 @@ export default function AnalysisPortal() {
   };
 
   const isProcessing = job?.status === "running" || job?.status === "queued";
+
+  const { data: recentRuns } = useQuery<HistoryItem[]>({
+    queryKey: ["/api/history?top=5"],
+    refetchInterval: 10000,
+  });
 
   return (
     <div className="p-6 lg:p-8">
@@ -480,6 +500,76 @@ export default function AnalysisPortal() {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {recentRuns && recentRuns.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center">
+                    <Clock className="h-4.5 w-4.5 text-accent-foreground" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Recent Runs</CardTitle>
+                    <CardDescription className="text-xs">Latest analysis history</CardDescription>
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" asChild className="gap-1">
+                  <Link href="/reports">
+                    View All
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {recentRuns.slice(0, 5).map((run) => (
+                  <div 
+                    key={run.id} 
+                    className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                    data-testid={`recent-run-${run.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        run.status === "Completed" ? "bg-success/20" :
+                        run.status === "Failed" ? "bg-destructive/20" :
+                        "bg-warning/20"
+                      }`}>
+                        {run.status === "Completed" ? (
+                          <CheckCircle className="h-4 w-4 text-success" />
+                        ) : run.status === "Failed" ? (
+                          <AlertCircle className="h-4 w-4 text-destructive" />
+                        ) : (
+                          <Loader2 className="h-4 w-4 text-warning animate-spin" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{run.reviewBatch}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(run.submittedAt), { addSuffix: true })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right text-xs">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-xs">
+                            {run.greenCount} GREEN
+                          </Badge>
+                          <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-xs">
+                            {run.redCount} RED
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground mt-1">{run.totalEmployees} employees</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}

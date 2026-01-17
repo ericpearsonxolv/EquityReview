@@ -1,0 +1,165 @@
+You are modifying the existing repo "equityreview-prototype" (do NOT create a new project). Implement the features below as an incremental update. Keep portability for Azure SWA + Azure Functions + Key Vault + Azure OpenAI. Do not hardcode secrets.
+
+FEATURE 1 — SharePoint List Integration: "Reports History"
+Goal: Every completed analysis run should be recorded in a SharePoint List (reports history), and the UI should display historical runs.
+
+A) Data model for SharePoint List items (minimum fields)
+- ReviewBatch (text)
+- RunId (text)  // jobId
+- SubmittedBy (text) // user principal or placeholder
+- SubmittedAt (datetime)
+- FileName (text)
+- TotalEmployees (number)
+- RedCount (number)
+- GreenCount (number)
+- Status (choice: Pending, Completed, Failed)
+- OutputFileUrl (text) // link to download results from API
+
+B) Backend: implement a SharePoint adapter module
+Create /apps/api/src/integrations/sharepoint/SharePointClient.ts
+- Provide methods:
+  - isConfigured(): boolean
+  - createRunHistory(item): Promise<void>
+  - listRunHistory(top?: number): Promise<RunHistoryItem[]>
+  - getRunHistoryByRunId(runId): Promise<RunHistoryItem | null>
+
+C) Authentication approach for prototype (portable)
+- Support 2 modes:
+  1) DEV MODE (Replit/local): use a service principal via env vars:
+     - SP_TENANT_ID
+     - SP_CLIENT_ID
+     - SP_CLIENT_SECRET
+  2) AZURE MODE: use DefaultAzureCredential (Managed Identity) when USE_MANAGED_IDENTITY=true
+
+Use Microsoft Graph API to interact with the SharePoint list:
+- Use siteId + listId for stable operations (avoid fragile URLs once configured)
+- Provide a helper endpoint to resolve siteId and listId from:
+  - SHAREPOINT_SITE_URL
+  - SHAREPOINT_LIST_NAME
+Store resolved IDs in memory cache for prototype.
+
+D) New API endpoints
+- GET /api/history
+  returns RunHistoryItem[] (latest 50)
+- POST /api/history/resolve
+  resolves siteId + listId from config and returns them (for admin testing)
+- POST /api/history/test
+  does a lightweight read/write test (create a test item then delete it if possible; if delete is too complex, just create and mark as "Test")
+
+E) Hook into existing analysis flow
+When /api/analyze completes and a results file is generated, create a run history record in SharePoint:
+- Status = Completed
+- OutputFileUrl = /api/jobs/:jobId/download
+If analysis fails, create record with Status=Failed and an error message field (optional).
+
+IMPORTANT: If SharePoint config is missing, do not fail the analysis. Log a warning and proceed.
+
+FEATURE 2 — UI: more colorful modern design
+Goal: Update the UI theme to look like a modern SaaS app (popular shades).
+Requirements:
+- Add a global theme palette: indigo/blue primary, teal accent, neutral grays, subtle gradients
+- Improve layout: top nav, left sidebar, cards, badges, tables
+- Add status badges for GREEN/RED and Completed/Pending
+- Avoid heavy design frameworks unless needed; you may use Tailwind OR Chakra UI OR MUI. Choose ONE and apply consistently.
+- Ensure accessibility (contrast) and a professional look.
+
+Pages:
+1) Dashboard (existing upload page): update styling, add "Recent Runs" widget pulling from /api/history.
+2) Reports History page:
+   - Table: ReviewBatch, SubmittedAt, FileName, TotalEmployees, RedCount, GreenCount, Status, Download link
+   - Filter: ReviewBatch, Status
+   - Click a row to open details (basic modal or details page)
+3) Admin section (new):
+   - /admin (landing)
+   - /admin/general
+   - /admin/security
+   - /admin/directory
+   - /admin/integrations/workday
+   - /admin/audit
+
+FEATURE 3 — Administration pages and configuration persistence
+Goal: Provide admin UI to configure integrations and view audit logs.
+
+A) Configuration storage for prototype
+- Store config in local JSON file on disk in /apps/api/.data/config.json (create folder if missing).
+- Provide a ConfigService with get/set methods and schema validation (zod).
+- Later this maps to Azure App Configuration or Key Vault; document this in README.
+
+B) Admin: General
+Fields:
+- Default ReviewBatch prefix (e.g., FY25-Q1)
+- Output retention days (prototype only)
+- Max rows per upload (guardrail)
+
+C) Admin: Security
+Fields (placeholders, not enforced fully yet):
+- Require login (toggle)
+- Allowed domains list (comma separated)
+- Allowed groups list (comma separated)
+Add a note: enforced in Azure with Entra ID + groups; for prototype keep as placeholders.
+
+D) Admin: Directory (IDP integration placeholders)
+- IDP Provider: Entra ID (default), Okta (placeholder), Google (placeholder)
+- Tenant/Issuer URL fields (optional)
+- Client ID field (optional)
+Do not implement full auth now; just config + UI.
+
+E) Admin: Workday HRIS integration config placeholders
+- Workday Base URL
+- Workday Tenant
+- Auth type: OAuth2 / Basic / Integration System User (dropdown)
+- Client ID / Secret (stored server-side only; if set, store encrypted or mark as "not stored in plaintext" and require Key Vault in Azure)
+For prototype, allow storing clientId and a masked secret value; do NOT echo secret back to UI after save.
+
+F) Admin: SharePoint integration settings
+- SharePoint Site URL
+- SharePoint List Name
+- (Read-only) resolved siteId, listId
+- Buttons:
+  - "Resolve IDs"
+  - "Test Connection"
+
+G) Admin: Audit Logging
+Implement basic audit events recorded server-side in /apps/api/.data/audit.log.jsonl (one JSON per line):
+Events to log:
+- FILE_UPLOADED (file name, size, reviewBatch)
+- ANALYSIS_STARTED (jobId)
+- ANALYSIS_COMPLETED (jobId, totals, redCount, greenCount)
+- ANALYSIS_FAILED (jobId, error)
+- SHAREPOINT_WRITE_SUCCESS / SHAREPOINT_WRITE_FAILED
+- ADMIN_CONFIG_UPDATED (which section updated, not the secret value)
+
+Add API:
+- GET /api/audit?top=200
+- Provide Admin UI table to view/filter by event type.
+
+ENV VARS
+Add to .env.example (root and /apps/api):
+- SHAREPOINT_SITE_URL=
+- SHAREPOINT_LIST_NAME=
+- SP_TENANT_ID=
+- SP_CLIENT_ID=
+- SP_CLIENT_SECRET=
+- USE_MANAGED_IDENTITY=false
+
+Also keep existing Azure OpenAI env vars.
+
+IMPLEMENTATION NOTES
+- Use Microsoft Graph SDK or plain fetch/axios; choose one.
+- Prefer @azure/identity for DefaultAzureCredential.
+- For service principal token, use MSAL Node or simple OAuth client credentials call; keep it clean.
+- Ensure SharePoint integration is isolated behind interface ISharePointHistoryStore so it can be swapped later.
+
+DELIVERABLES
+- Code changes only (no full rewrite)
+- Updated README:
+  - How to create the SharePoint list
+  - Where to get site URL/list name
+  - How to set env vars in Replit
+  - Limitations: service principal permissions required
+- Add a "Migration to Azure" section:
+  - Use Managed Identity for Graph
+  - Store secrets in Key Vault
+  - Replace config.json with App Configuration
+
+Make the changes now and ensure the app still runs with `npm run dev`.

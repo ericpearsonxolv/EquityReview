@@ -7,6 +7,9 @@ import { storage } from "./storage";
 import { parseExcelFile } from "./excel/parser";
 import { generateResultsExcel } from "./excel/writer";
 import { createLLMProvider } from "./llm/provider";
+import { getSharePointClient } from "./integrations/sharepoint/SharePointClient";
+import { configService } from "./services/config";
+import { auditService } from "./services/audit";
 import { insertJobSchema, type AnalysisResult } from "@shared/schema";
 
 const upload = multer({
@@ -23,19 +26,61 @@ const upload = multer({
 });
 
 const llmProvider = createLLMProvider();
+const sharePointClient = getSharePointClient();
 
-async function processJob(jobId: string, buffer: Buffer, reviewBatch: string) {
+async function recordSharePointHistory(
+  jobId: string,
+  reviewBatch: string,
+  fileName: string,
+  totalEmployees: number,
+  redCount: number,
+  greenCount: number,
+  status: "Completed" | "Failed",
+  errorMessage?: string
+) {
+  if (!sharePointClient.isConfigured()) {
+    console.log("[SharePoint] Not configured, skipping history record");
+    return;
+  }
+
   try {
+    await sharePointClient.createRunHistory({
+      reviewBatch,
+      runId: jobId,
+      submittedBy: "System",
+      submittedAt: new Date().toISOString(),
+      fileName,
+      totalEmployees,
+      redCount,
+      greenCount,
+      status,
+      outputFileUrl: `/api/jobs/${jobId}/download`,
+      errorMessage,
+    });
+    auditService.sharePointWriteSuccess(jobId);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : "Unknown error";
+    console.error("[SharePoint] Failed to record history:", errorMsg);
+    auditService.sharePointWriteFailed(jobId, errorMsg);
+  }
+}
+
+async function processJob(jobId: string, buffer: Buffer, reviewBatch: string, fileName: string) {
+  try {
+    auditService.analysisStarted(jobId);
     await storage.updateJob(jobId, { status: "running", progress: 5, message: "Parsing Excel file..." });
 
     const parseResult = await parseExcelFile(buffer);
     
     if (!parseResult.success || !parseResult.employees) {
+      const errorMsg = parseResult.error || "Failed to parse Excel file";
       await storage.updateJob(jobId, { 
         status: "error", 
         progress: 0, 
-        message: parseResult.error || "Failed to parse Excel file" 
+        message: errorMsg
       });
+      auditService.analysisFailed(jobId, errorMsg);
+      await recordSharePointHistory(jobId, reviewBatch, fileName, 0, 0, 0, "Failed", errorMsg);
       return;
     }
 
@@ -86,15 +131,21 @@ async function processJob(jobId: string, buffer: Buffer, reviewBatch: string) {
     const writeResult = await generateResultsExcel(reviewBatch, results, jobId);
     
     if (!writeResult.success) {
+      const errorMsg = writeResult.error || "Failed to generate results file";
       await storage.updateJob(jobId, { 
         status: "error", 
         progress: 0, 
-        message: writeResult.error || "Failed to generate results file" 
+        message: errorMsg
       });
+      auditService.analysisFailed(jobId, errorMsg);
+      await recordSharePointHistory(jobId, reviewBatch, fileName, totalEmployees, 0, 0, "Failed", errorMsg);
       return;
     }
 
     await storage.storeJobResults(jobId, results);
+
+    const redCount = results.filter(r => r.aiRecommendation === "RED").length;
+    const greenCount = results.filter(r => r.aiRecommendation === "GREEN").length;
 
     await storage.updateJob(jobId, { 
       status: "done", 
@@ -103,12 +154,17 @@ async function processJob(jobId: string, buffer: Buffer, reviewBatch: string) {
       resultFileName: writeResult.fileName,
     });
 
+    auditService.analysisCompleted(jobId, totalEmployees, redCount, greenCount);
+    await recordSharePointHistory(jobId, reviewBatch, fileName, totalEmployees, redCount, greenCount, "Completed");
+
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : "An unexpected error occurred";
     await storage.updateJob(jobId, { 
       status: "error", 
       progress: 0, 
-      message: error instanceof Error ? error.message : "An unexpected error occurred" 
+      message: errorMsg
     });
+    auditService.analysisFailed(jobId, errorMsg);
   }
 }
 
@@ -133,9 +189,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Excel file is required" });
       }
 
+      const fileName = req.file.originalname || "upload.xlsx";
+      auditService.fileUploaded(fileName, req.file.size, validation.data.reviewBatch);
+
       const job = await storage.createJob({ reviewBatch: validation.data.reviewBatch });
       
-      processJob(job.id, req.file.buffer, validation.data.reviewBatch);
+      processJob(job.id, req.file.buffer, validation.data.reviewBatch, fileName);
 
       return res.json({ jobId: job.id });
     } catch (error) {
@@ -257,6 +316,218 @@ export async function registerRoutes(
       fileStream.pipe(res);
     } catch (error) {
       console.error("Error in /api/jobs/:jobId/download:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/history", async (req: Request, res: Response) => {
+    try {
+      const top = parseInt(req.query.top as string) || 50;
+      
+      if (sharePointClient.isConfigured()) {
+        const history = await sharePointClient.listRunHistory(top);
+        return res.json(history);
+      }
+      
+      const allJobs = await storage.getAllJobs();
+      const history = await Promise.all(
+        allJobs.slice(0, top).map(async (job) => {
+          const results = await storage.getJobResults(job.id) || [];
+          const redCount = results.filter((r) => r.aiRecommendation === "RED").length;
+          const greenCount = results.filter((r) => r.aiRecommendation === "GREEN").length;
+          
+          return {
+            id: job.id,
+            reviewBatch: job.reviewBatch,
+            runId: job.id,
+            submittedBy: "System",
+            submittedAt: job.createdAt?.toISOString() || new Date().toISOString(),
+            fileName: job.resultFileName || "",
+            totalEmployees: job.totalEmployees || 0,
+            redCount,
+            greenCount,
+            status: job.status === "done" ? "Completed" : job.status === "error" ? "Failed" : "Pending",
+            outputFileUrl: `/api/jobs/${job.id}/download`,
+          };
+        })
+      );
+      
+      return res.json(history);
+    } catch (error) {
+      console.error("Error in /api/history:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/history/resolve", async (req: Request, res: Response) => {
+    try {
+      if (!sharePointClient.isConfigured()) {
+        return res.status(400).json({ 
+          message: "SharePoint not configured",
+          configured: false 
+        });
+      }
+
+      const ids = await sharePointClient.resolveIds();
+      
+      if (!ids) {
+        return res.status(400).json({ 
+          message: "Failed to resolve SharePoint IDs" 
+        });
+      }
+
+      configService.updateSharePoint({
+        resolvedSiteId: ids.siteId,
+        resolvedListId: ids.listId,
+      });
+
+      return res.json({ 
+        success: true, 
+        siteId: ids.siteId, 
+        listId: ids.listId 
+      });
+    } catch (error) {
+      console.error("Error in /api/history/resolve:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/history/test", async (req: Request, res: Response) => {
+    try {
+      if (!sharePointClient.isConfigured()) {
+        return res.status(400).json({ 
+          success: false,
+          message: "SharePoint not configured" 
+        });
+      }
+
+      const result = await sharePointClient.testConnection();
+      return res.json(result);
+    } catch (error) {
+      console.error("Error in /api/history/test:", error);
+      return res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : "Internal server error" 
+      });
+    }
+  });
+
+  app.get("/api/audit", async (req: Request, res: Response) => {
+    try {
+      const top = parseInt(req.query.top as string) || 200;
+      const eventType = req.query.eventType as string | undefined;
+      
+      const events = auditService.getEvents(
+        top, 
+        eventType as any
+      );
+      
+      return res.json(events);
+    } catch (error) {
+      console.error("Error in /api/audit:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config", async (req: Request, res: Response) => {
+    try {
+      return res.json(configService.getAll());
+    } catch (error) {
+      console.error("Error in /api/config:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config/general", async (req: Request, res: Response) => {
+    try {
+      return res.json(configService.getGeneral());
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/config/general", async (req: Request, res: Response) => {
+    try {
+      const updated = configService.updateGeneral(req.body);
+      auditService.adminConfigUpdated("general");
+      return res.json(updated);
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config/security", async (req: Request, res: Response) => {
+    try {
+      return res.json(configService.getSecurity());
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/config/security", async (req: Request, res: Response) => {
+    try {
+      const updated = configService.updateSecurity(req.body);
+      auditService.adminConfigUpdated("security");
+      return res.json(updated);
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config/directory", async (req: Request, res: Response) => {
+    try {
+      return res.json(configService.getDirectory());
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/config/directory", async (req: Request, res: Response) => {
+    try {
+      const updated = configService.updateDirectory(req.body);
+      auditService.adminConfigUpdated("directory");
+      return res.json(updated);
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config/workday", async (req: Request, res: Response) => {
+    try {
+      return res.json(configService.getWorkday());
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/config/workday", async (req: Request, res: Response) => {
+    try {
+      const updated = configService.updateWorkday(req.body);
+      auditService.adminConfigUpdated("workday");
+      return res.json(updated);
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/config/sharepoint", async (req: Request, res: Response) => {
+    try {
+      const config = configService.getSharePoint();
+      return res.json({
+        ...config,
+        isConfigured: sharePointClient.isConfigured(),
+      });
+    } catch (error) {
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/config/sharepoint", async (req: Request, res: Response) => {
+    try {
+      const updated = configService.updateSharePoint(req.body);
+      auditService.adminConfigUpdated("sharepoint");
+      return res.json(updated);
+    } catch (error) {
       return res.status(500).json({ message: "Internal server error" });
     }
   });

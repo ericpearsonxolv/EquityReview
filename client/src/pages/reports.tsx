@@ -1,9 +1,12 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ChevronRight, Download, FileSpreadsheet, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { ChevronRight, Download, FileSpreadsheet, Clock, CheckCircle, XCircle, Loader2, Search, Filter } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,11 +41,26 @@ function StatusBadge({ status }: { status: JobRecord["status"] }) {
 
 export default function Reports() {
   const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   
   const { data: jobs, isLoading, error } = useQuery<JobRecord[]>({
     queryKey: ["/api/jobs"],
     refetchInterval: 5000,
   });
+
+  const filteredJobs = useMemo(() => {
+    if (!jobs) return [];
+    
+    return jobs.filter((job) => {
+      const matchesSearch = searchQuery === "" || 
+        job.reviewBatch.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesStatus = statusFilter === "all" || job.status === statusFilter;
+      
+      return matchesSearch && matchesStatus;
+    });
+  }, [jobs, searchQuery, statusFilter]);
 
   const handleDownload = async (jobId: string) => {
     try {
@@ -91,13 +109,42 @@ export default function Reports() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5 text-primary" />
-            Report History
-          </CardTitle>
-          <CardDescription>
-            All analysis jobs with their current status and results
-          </CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+                Report History
+              </CardTitle>
+              <CardDescription>
+                All analysis jobs with their current status and results
+              </CardDescription>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search review batch..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-full sm:w-60"
+                  data-testid="input-search-reports"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-36" data-testid="select-status-filter">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="done">Complete</SelectItem>
+                  <SelectItem value="running">Running</SelectItem>
+                  <SelectItem value="queued">Queued</SelectItem>
+                  <SelectItem value="error">Error</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -114,6 +161,12 @@ export default function Reports() {
               <p>No analysis reports yet.</p>
               <p className="text-sm">Run your first analysis from the Analysis page to see results here.</p>
             </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No reports match your filters.</p>
+              <p className="text-sm">Try adjusting your search or status filter.</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -126,7 +179,7 @@ export default function Reports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {jobs.map((job) => (
+                {filteredJobs.map((job) => (
                   <TableRow key={job.id} data-testid={`row-job-${job.id}`}>
                     <TableCell className="font-medium">{job.reviewBatch}</TableCell>
                     <TableCell>

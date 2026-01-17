@@ -1,4 +1,4 @@
-import { BarChart3, FileSpreadsheet, Shield } from "lucide-react";
+import { BarChart3, FileSpreadsheet, Shield, Settings, Lock, Users, Building2, Link as LinkIcon, ClipboardList } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -38,6 +38,39 @@ const navigationItems = [
     title: "Compliance",
     url: "/compliance",
     icon: Shield,
+  },
+];
+
+const adminItems = [
+  {
+    title: "General",
+    url: "/admin/general",
+    icon: Settings,
+  },
+  {
+    title: "Security",
+    url: "/admin/security",
+    icon: Lock,
+  },
+  {
+    title: "Directory",
+    url: "/admin/directory",
+    icon: Users,
+  },
+  {
+    title: "Workday",
+    url: "/admin/integrations/workday",
+    icon: Building2,
+  },
+  {
+    title: "SharePoint",
+    url: "/admin/integrations/sharepoint",
+    icon: LinkIcon,
+  },
+  {
+    title: "Audit Log",
+    url: "/admin/audit",
+    icon: ClipboardList,
   },
 ];
 
@@ -93,19 +126,44 @@ export function AppSidebar() {
           <SidebarGroupLabel>Quick Stats</SidebarGroupLabel>
           <SidebarGroupContent className="px-2">
             <div className="space-y-2">
-              <div className="px-3 py-2 rounded-md bg-sidebar-accent" data-testid="stat-reviews-analyzed">
-                <div className="text-xs text-muted-foreground">Reviews Analyzed</div>
+              <div className="px-3 py-2 rounded-md bg-sidebar-accent/50" data-testid="stat-reviews-analyzed">
+                <div className="text-xs text-sidebar-foreground/70">Reviews Analyzed</div>
                 <div className="text-lg font-semibold text-sidebar-foreground">
                   {stats?.totalAnalyzed ?? 0}
                 </div>
               </div>
-              <div className="px-3 py-2 rounded-md bg-sidebar-accent" data-testid="stat-red-flags">
-                <div className="text-xs text-muted-foreground">RED Flags</div>
+              <div className="px-3 py-2 rounded-md bg-sidebar-accent/50" data-testid="stat-red-flags">
+                <div className="text-xs text-sidebar-foreground/70">RED Flags</div>
                 <div className="text-lg font-semibold text-sidebar-foreground">
                   {stats?.totalRedFlags ?? 0}
                 </div>
               </div>
             </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        
+        <Separator className="mx-4" />
+        
+        <SidebarGroup>
+          <SidebarGroupLabel>Administration</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton 
+                    asChild 
+                    isActive={location === item.url}
+                    tooltip={item.title}
+                    data-testid={`nav-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
