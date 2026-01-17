@@ -132,7 +132,7 @@ export class MockLLMProvider implements ILLMProvider {
       ratingConsistency,
       ratingConsistencyRationale,
       aiRecommendation: recommendation,
-      flagsTriggered: [...new Set(flags)],
+      flagsTriggered: Array.from(new Set(flags)),
     };
 
     return analysisResultSchema.parse(result);

@@ -146,7 +146,7 @@ export async function registerRoutes(
 
   app.get("/api/jobs/:jobId", async (req: Request, res: Response) => {
     try {
-      const { jobId } = req.params;
+      const jobId = req.params.jobId as string;
       
       const job = await storage.getJob(jobId);
       
@@ -168,7 +168,7 @@ export async function registerRoutes(
 
   app.get("/api/jobs/:jobId/download", async (req: Request, res: Response) => {
     try {
-      const { jobId } = req.params;
+      const jobId = req.params.jobId as string;
       
       const job = await storage.getJob(jobId);
       
