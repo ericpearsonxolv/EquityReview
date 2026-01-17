@@ -1,0 +1,198 @@
+Project Name: equityreview-prototype
+
+You are building a production-portable prototype repo that runs in Replit and can later be moved to Azure DevOps and deployed to Azure Static Web Apps (SWA) + Azure Functions + Azure Key Vault + Azure OpenAI + Azure Storage. The repo must remain portable and should not contain Replit-specific coupling.
+
+PRIMARY OUTCOME (MVP)
+A web app where approved users can:
+1) Enter ReviewBatch
+2) Upload an Excel (.xlsx) export of performance review data
+3) Run AI analysis per employee (bias / values alignment / rating consistency + GREEN/RED)
+4) Download a generated Results Excel (.xlsx)
+5) Optionally export to SharePoint later (Phase 2 placeholder only)
+
+ARCHITECTURE REQUIREMENTS
+- Monorepo with npm workspaces (Node 20).
+- Separate apps:
+  /apps/web  (React + Vite + TypeScript)
+  /apps/api  (Node + TypeScript, Express API; structured so it can be adapted to Azure Functions later)
+- Shared library:
+  /packages/shared (types, schemas, rating maps, escalation rules, prompts)
+- Infrastructure placeholder:
+  /infra/bicep (main.bicep placeholder + parameters + README)
+- Azure DevOps pipeline placeholder:
+  /ado/pipelines/azure-pipelines.yml (build + test + artifact output; SWA notes)
+- Documentation:
+  /docs/architecture.md
+  /docs/sop.md (quarterly HR SOP draft)
+
+SECURITY REQUIREMENTS
+- No secrets committed.
+- Use .env locally/Replit.
+- Provide .env.example at repo root and /apps/api/.env.example.
+- Add a Key Vault integration placeholder:
+  - If KEYVAULT_URI is set, read secrets using DefaultAzureCredential (Managed Identity in Azure).
+  - Otherwise fall back to dotenv values.
+- DO NOT implement SharePoint writes yet; only plan it.
+
+LLM REQUIREMENTS (Azure OpenAI ready)
+- Implement an LLM provider abstraction:
+  - mock provider (default) so the prototype runs with no external keys
+  - azure_openai provider using:
+      AZURE_OPENAI_ENDPOINT
+      AZURE_OPENAI_API_KEY (local dev only)
+      AZURE_OPENAI_DEPLOYMENT_CHAT (default gpt-4o)
+- The AI call must request STRICT JSON output and validate with Zod.
+- Build prompt templates and escalation rules in packages/shared.
+- Required per-employee output schema:
+  {
+    "employeeId": "E001",
+    "biasAssessment": "...",
+    "valuesAlignment": "Aligned|Partially aligned|Misaligned",
+    "ratingConsistency": "Consistent|Inconsistent",
+    "ratingConsistencyRationale": "...",
+    "aiRecommendation": "GREEN|RED",
+    "flagsTriggered": ["...","..."]
+  }
+
+ESCALATION RULES (RED)
+Set aiRecommendation = RED if ANY of these are true:
+A) Rating mismatch:
+   - Overall rating mismatch >= 2 levels (employee vs manager)
+   - OR Goals/Values mismatch >= 2 levels
+B) Narrative insufficiency:
+   - Manager comments are missing OR too vague to justify the rating
+C) Loaded language without evidence:
+   - "abrasive", "emotional", "not a culture fit", "too aggressive", "lacks executive presence"
+   AND no concrete examples
+D) Protected-class/policy sensitivity:
+   - Mentions: medical/disability/pregnancy/religion/race/age/gender identity/harassment/discrimination/retaliation
+   => RED + add flag "PolicySensitive_EscalateHR" and keep language neutral (do not diagnose).
+The output must include which flags triggered.
+
+RATING NORMALIZATION
+Implement a mapping to numeric levels:
+- Does Not Meet Expectations, Below Expectations => 1
+- Meets / Meeting Expectations => 2
+- Exceeds / Exceeding Expectations => 3
+If the input uses different labels, handle gracefully (best-effort mapping + flag "UnknownRatingLabel").
+
+DATA/EXCEL REQUIREMENTS
+- Accept an uploaded Excel file (.xlsx).
+- Parse first sheet by default.
+- Must locate EmployeeId column (case-insensitive). If missing, return a clear error.
+- Support common columns:
+  - Goal Employee Rating, Goal Manager Rating
+  - Values Employee Rating, Values Manager Rating
+  - Overall Rating - Employee, Overall Rating - Manager
+  - Manager Comments (or similar)
+- Build a robust column resolver with aliases.
+
+OUTPUT EXCEL REQUIREMENTS
+Generate a new Excel file with these columns:
+ReviewBatch,EmployeeId,AI_Output,AI_Recommendation,ReviewStatus,ReviewerNotes,FlagsTriggered
+Rules:
+- ReviewBatch comes from UI input.
+- ReviewStatus = "Pending"
+- ReviewerNotes blank
+- AI_Output must be a single line string:
+  "Bias Assessment: ... | Values Alignment: ... | Rating Consistency: ... (rationale...)"
+- FlagsTriggered comma-delimited.
+Store the output Excel in ./tmp and provide a download endpoint.
+
+BACKEND ENDPOINTS
+- POST /api/analyze  (multipart/form-data)
+  fields:
+   - reviewBatch: string
+   - file: .xlsx
+  returns: { jobId }
+- GET /api/jobs/:jobId
+  returns: { status: queued|running|done|error, progress: 0-100, message?, resultFileName? }
+- GET /api/jobs/:jobId/download
+  returns: output .xlsx (Content-Disposition attachment)
+
+JOB MODEL
+For prototype:
+- Use in-memory job store + local filesystem ./tmp.
+- Add a storage adapter interface so later we can switch to Azure Blob:
+  IStorageAdapter.putObject/getObject/getSignedUrl (or equivalent)
+
+FRONTEND UI
+- React + Vite + TS.
+- Minimal professional UI:
+  - ReviewBatch input
+  - File upload input (.xlsx)
+  - Submit button
+  - Status/progress display
+  - Download button when done
+- Use fetch to call backend.
+- No authentication for MVP, but add a clearly marked placeholder for Entra ID auth later.
+
+LIBS (choose these)
+Backend:
+- express
+- multer
+- exceljs (parsing + writing)
+- zod
+- pino (logging)
+Frontend:
+- react, react-dom
+- minimal CSS (no heavy frameworks unless needed)
+Tooling:
+- typescript
+- eslint + prettier
+
+REPO SCRIPTS (root package.json)
+- npm run dev         => runs web + api concurrently
+- npm run dev:web
+- npm run dev:api
+- npm run build       => builds web and api
+- npm run lint
+
+PORT CONFIG
+- API runs on PORT=4000
+- Web runs on PORT=3000
+- In dev, web proxies /api to localhost:4000
+- In Replit, allow host/port binding with 0.0.0.0 and use environment PORT as needed.
+
+PORTABILITY TO AZURE (MUST INCLUDE)
+- Add /apps/api/functions/ folder with placeholders:
+  - analyze/function.json
+  - analyze/index.ts
+  These should call the same handler code used by Express (shared function).
+- Add notes in README for:
+  - Azure Static Web Apps deployment (web + API)
+  - Azure Functions deployment (if separate)
+  - Key Vault + Managed Identity setup
+  - Azure OpenAI config
+  - Azure Blob Storage config
+- Add /ado/pipelines/azure-pipelines.yml with:
+  - node 20 install
+  - npm ci
+  - npm run build
+  - publish artifact steps
+  - notes for SWA deploy task (placeholder variables)
+
+DOCUMENTATION
+- README.md with:
+  1) Run in Replit
+  2) Run locally
+  3) Configure Azure OpenAI (optional)
+  4) Generate a sample Excel using a script
+  5) How to migrate to Azure DevOps + SWA + Key Vault + AOAI + Storage
+- /apps/api/scripts/generate-sample-xlsx.ts:
+  - Generates a test Excel with 25 dummy employees and expected columns.
+
+IMPORTANT BEHAVIOR
+- Default LLM_PROVIDER=mock so prototype works without keys.
+- If LLM_PROVIDER=azure_openai, call Azure OpenAI and enforce JSON schema.
+- Never print secrets.
+- No code blocks in AI output; it must be parsed JSON.
+- Handle errors gracefully with clear messages.
+
+DELIVERABLES
+Generate all repo files now, ensure the app runs with:
+  npm install
+  npm run dev
+and provide clear instructions in README.
+
+Start building immediately.
