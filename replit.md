@@ -18,6 +18,9 @@ A web application for Catalight HR teams to analyze performance review data usin
 - **Excel Processing**: exceljs for parsing and generating Excel files
 - **File Upload**: multer for multipart/form-data handling
 - **SharePoint**: Microsoft Graph API with @azure/identity
+- **Authentication**: Microsoft Entra ID (Azure AD) with MSAL
+- **Secrets**: Azure Key Vault with @azure/keyvault-secrets
+- **Monitoring**: Azure Application Insights + Log Analytics
 
 ## Project Structure
 ```
@@ -46,7 +49,10 @@ A web application for Catalight HR teams to analyze performance review data usin
 │   │       └── types.ts             # Type definitions
 │   ├── services/
 │   │   ├── config.ts       # Config persistence (JSON file)
-│   │   └── audit.ts        # Audit logging service
+│   │   ├── audit.ts        # Audit logging (local + Azure Log Analytics)
+│   │   ├── azure-auth.ts   # Microsoft Entra ID authentication
+│   │   ├── azure-keyvault.ts  # Azure Key Vault secrets management
+│   │   └── azure-telemetry.ts # Application Insights telemetry
 │   ├── llm/
 │   │   └── provider.ts     # LLM abstraction (mock provider)
 │   ├── excel/
@@ -171,23 +177,30 @@ Required Microsoft Graph permissions:
 - Sites.ReadWrite.All (Application)
 - Sites.Selected (for restricted access)
 
-## Migration to Azure
+## Azure Deployment
 
-### Authentication
-- Replace service principal with Managed Identity (set USE_MANAGED_IDENTITY=true)
-- Use Azure Static Web Apps authentication with Entra ID
+The application is fully prepared for Azure deployment with enterprise-grade integrations:
 
-### Secrets
-- Move secrets to Azure Key Vault
-- Reference secrets in App Configuration
+### Azure Services Integration
+- **Microsoft Entra ID**: SSO authentication with MSAL (server/services/azure-auth.ts)
+- **Azure Key Vault**: Secrets management with managed identity (server/services/azure-keyvault.ts)
+- **Application Insights**: Telemetry and monitoring (server/services/azure-telemetry.ts)
+- **Log Analytics**: Centralized audit logging (server/services/audit.ts)
+- **VNet Integration**: Private endpoints for database and Key Vault
 
-### Configuration
-- Replace config.json with Azure App Configuration
-- Use feature flags for environment-specific behavior
+### Deployment Files
+- `azure-pipelines.yml`: Multi-stage CI/CD pipeline
+- `Dockerfile`: Multi-stage production container build
+- `AZURE-SETUP.md`: Comprehensive deployment guide with all Azure CLI commands
 
-### Database
-- Migrate to Azure Database for PostgreSQL
-- Use connection strings from Key Vault
+### Key Environment Variables (Azure)
+- `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`: Entra ID auth
+- `AZURE_KEYVAULT_URL`: Key Vault for secrets
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`: Telemetry
+- `LOG_ANALYTICS_WORKSPACE_ID`, `LOG_ANALYTICS_SHARED_KEY`: Audit to Log Analytics
+- `USE_MANAGED_IDENTITY=true`: Use managed identity in Azure
+
+See `AZURE-SETUP.md` for complete deployment instructions including VNet, private endpoints, DR/backup, and security configuration.
 
 ## User Preferences
 - Professional, enterprise-grade UI with modern indigo/blue/teal palette
