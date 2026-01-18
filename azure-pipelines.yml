@@ -1,147 +1,191 @@
+# Azure DevOps Pipeline - EquityReview
+# Deploys to Azure Static Web App and Function App
+
 trigger:
   branches:
     include:
       - main
-      - develop
+      - dev
   paths:
     exclude:
-      - '*.md'
-      - 'docs/**'
-
-pr:
-  branches:
-    include:
-      - main
-      - develop
-
-pool:
-  vmImage: 'ubuntu-latest'
+      - README.md
+      - docs/**
+      - infrastructure/**
 
 variables:
-  npm_config_cache: $(Pipeline.Workspace)/.npm
-  NODE_VERSION: '20.x'
-  AZURE_CONTAINER_REGISTRY: 'your-acr-name.azurecr.io'
-  IMAGE_NAME: 'equityreview'
+  # Environment-specific variables
+  ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+    environmentName: 'dev'
+    resourceGroup: 'rg-catalight-er-dev'
+    staticWebAppName: 'catalight-er-swa-dev'
+    functionAppName: 'catalight-er-func-dev'
+  ${{ if eq(variables['Build.SourceBranchName'], 'dev') }}:
+    environmentName: 'dev'
+    resourceGroup: 'rg-catalight-er-dev'
+    staticWebAppName: 'catalight-er-swa-dev'
+    functionAppName: 'catalight-er-func-dev'
+
+  # Build configuration
+  nodeVersion: '20.x'
+  buildConfiguration: 'production'
 
 stages:
   - stage: Build
-    displayName: 'Build & Test'
+    displayName: 'Build Application'
     jobs:
-      - job: BuildAndTest
-        displayName: 'Build, Lint, Test'
+      - job: BuildJob
+        displayName: 'Build Frontend and Backend'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
         steps:
-          - checkout: self
-            fetchDepth: 0
-
           - task: NodeTool@0
+            displayName: 'Install Node.js'
             inputs:
-              versionSpec: $(NODE_VERSION)
-            displayName: 'Install Node.js $(NODE_VERSION)'
-
+              versionSpec: $(nodeVersion)
+          
           - task: Cache@2
+            displayName: 'Cache npm packages'
             inputs:
               key: 'npm | "$(Agent.OS)" | package-lock.json'
+              path: '$(System.DefaultWorkingDirectory)/node_modules'
               restoreKeys: |
                 npm | "$(Agent.OS)"
-              path: $(npm_config_cache)
-            displayName: 'Cache npm packages'
-
-          - script: npm ci
+          
+          - script: |
+              npm ci
             displayName: 'Install dependencies'
-
-          - script: npm run check
-            displayName: 'TypeScript type check'
-            continueOnError: false
-
-          - script: npm run build
+          
+          - script: |
+              npm run build
             displayName: 'Build application'
-
-          - script: npm audit --audit-level=moderate
-            displayName: 'Security audit'
-            continueOnError: true
-
-          - task: CopyFiles@2
+            env:
+              NODE_ENV: production
+          
+          # Archive build artifacts
+          - task: ArchiveFiles@2
+            displayName: 'Archive frontend build'
             inputs:
-              sourceFolder: '$(Build.SourcesDirectory)'
-              contents: |
-                dist/**
-                server/**
-                client/**
-                shared/**
-                package.json
-                package-lock.json
-                drizzle.config.ts
-                tsconfig.json
-                vite.config.ts
-                tailwind.config.ts
-                postcss.config.mjs
-              targetFolder: '$(Build.ArtifactStagingDirectory)/app'
-            displayName: 'Copy application files'
-
+              rootFolderOrFile: '$(System.DefaultWorkingDirectory)/dist'
+              includeRootFolder: false
+              archiveType: 'zip'
+              archiveFile: '$(Build.ArtifactStagingDirectory)/frontend-$(Build.BuildId).zip'
+          
+          # Publish artifacts
           - task: PublishBuildArtifacts@1
-            inputs:
-              pathToPublish: '$(Build.ArtifactStagingDirectory)/app'
-              artifactName: 'app-dist'
             displayName: 'Publish build artifacts'
-
-  - stage: BuildContainer
-    displayName: 'Build Container Image'
-    dependsOn: Build
-    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/develop')))
-    jobs:
-      - job: DockerBuild
-        displayName: 'Build and Push Docker Image'
-        steps:
-          - task: DownloadBuildArtifacts@0
             inputs:
-              artifactName: 'app-dist'
-              downloadPath: '$(Build.SourcesDirectory)'
-
-          - task: Docker@2
-            inputs:
-              containerRegistry: 'AzureContainerRegistry'
-              repository: '$(IMAGE_NAME)'
-              command: 'buildAndPush'
-              Dockerfile: '**/Dockerfile'
-              tags: |
-                $(Build.BuildId)
-                latest
-            displayName: 'Build and push Docker image'
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'drop'
+              publishLocation: 'Container'
 
   - stage: DeployDev
-    displayName: 'Deploy to Development'
-    dependsOn: BuildContainer
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+    displayName: 'Deploy to Dev'
+    dependsOn: Build
+    condition: succeeded()
     jobs:
-      - deployment: DeployToDev
-        displayName: 'Deploy to Dev Environment'
-        environment: 'development'
+      - deployment: DeployStaticWebApp
+        displayName: 'Deploy to Azure Static Web App'
+        environment: $(environmentName)
+        pool:
+          vmImage: 'ubuntu-latest'
         strategy:
           runOnce:
             deploy:
               steps:
-                - task: AzureWebAppContainer@1
+                - task: DownloadBuildArtifacts@0
+                  displayName: 'Download build artifacts'
                   inputs:
-                    azureSubscription: 'Azure-Service-Connection'
-                    appName: 'equityreview-dev'
-                    containers: '$(AZURE_CONTAINER_REGISTRY)/$(IMAGE_NAME):$(Build.BuildId)'
-                  displayName: 'Deploy to Azure App Service (Dev)'
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'drop'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+                
+                - task: AzureStaticWebApp@0
+                  displayName: 'Deploy to Static Web App'
+                  inputs:
+                    app_location: '/'
+                    api_location: ''
+                    output_location: 'dist'
+                    azure_static_web_apps_api_token: $(AZURE_STATIC_WEB_APPS_API_TOKEN)
+                    skip_app_build: true
 
-  - stage: DeployProd
-    displayName: 'Deploy to Production'
-    dependsOn: BuildContainer
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - deployment: DeployToProd
-        displayName: 'Deploy to Production Environment'
-        environment: 'production'
+      - deployment: DeployFunctionApp
+        displayName: 'Deploy to Azure Function App'
+        environment: $(environmentName)
+        pool:
+          vmImage: 'ubuntu-latest'
         strategy:
           runOnce:
             deploy:
               steps:
-                - task: AzureWebAppContainer@1
+                - task: NodeTool@0
+                  displayName: 'Install Node.js'
                   inputs:
-                    azureSubscription: 'Azure-Service-Connection'
-                    appName: 'equityreview-prod'
-                    containers: '$(AZURE_CONTAINER_REGISTRY)/$(IMAGE_NAME):$(Build.BuildId)'
-                  displayName: 'Deploy to Azure App Service (Prod)'
+                    versionSpec: $(nodeVersion)
+                
+                - checkout: self
+                
+                - script: |
+                    cd server
+                    npm ci --production
+                  displayName: 'Install Function App dependencies'
+                
+                - task: AzureFunctionApp@2
+                  displayName: 'Deploy Azure Function App'
+                  inputs:
+                    azureSubscription: 'Azure-ServiceConnection'
+                    appType: 'functionAppLinux'
+                    appName: $(functionAppName)
+                    package: '$(System.DefaultWorkingDirectory)/server'
+                    runtimeStack: 'NODE|20'
+                    deploymentMethod: 'auto'
+
+  - stage: ConfigureResources
+    displayName: 'Configure Azure Resources'
+    dependsOn: DeployDev
+    condition: succeeded()
+    jobs:
+      - job: ConfigureAppSettings
+        displayName: 'Update Function App Settings'
+        pool:
+          vmImage: 'ubuntu-latest'
+        
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Configure Function App Settings'
+            inputs:
+              azureSubscription: 'Azure-ServiceConnection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Update Function App settings
+                az functionapp config appsettings set \
+                  --name $(functionAppName) \
+                  --resource-group $(resourceGroup) \
+                  --settings \
+                    COSMOS_DB_CONNECTION="@Microsoft.KeyVault(VaultName=catalight-er-kv-$(environmentName);SecretName=COSMOS-DB-CONNECTION)" \
+                    COSMOS_DB_NAME="equityreview" \
+                    AZURE_AD_TENANT_ID="$(AZURE_AD_TENANT_ID)" \
+                    AZURE_AD_CLIENT_ID="$(AZURE_AD_CLIENT_ID)" \
+                    NODE_ENV="production" \
+                    APPLICATIONINSIGHTS_CONNECTION_STRING="$(APP_INSIGHTS_CONNECTION_STRING)"
+                
+                echo "Function App settings updated successfully"
+          
+          - task: AzureCLI@2
+            displayName: 'Configure Static Web App Settings'
+            inputs:
+              azureSubscription: 'Azure-ServiceConnection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Update Static Web App settings
+                az staticwebapp appsettings set \
+                  --name $(staticWebAppName) \
+                  --resource-group $(resourceGroup) \
+                  --setting-names \
+                    AZURE_AD_CLIENT_ID="$(AZURE_AD_CLIENT_ID)" \
+                    AZURE_AD_CLIENT_SECRET="@Microsoft.KeyVault(VaultName=catalight-er-kv-$(environmentName);SecretName=AZURE-AD-CLIENT-SECRET)"
+                
+                echo "Static Web App settings updated successfully"

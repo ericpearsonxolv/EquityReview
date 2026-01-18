@@ -1,0 +1,9 @@
+# Infrastructure deployment outputs
+deployment-outputs.json
+
+# Azure credentials (if accidentally saved)
+*.publishsettings
+*.azureProfile
+
+# Temporary files
+app-roles.json
